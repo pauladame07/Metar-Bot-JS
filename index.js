@@ -3,22 +3,24 @@ const axios = require('axios');
 const dotenv = require('dotenv');
 const os = require('os');
 
-// load environment variables
+// Load environment variables
+dotenv.config();
 
-const TOKEN = proccess.env.TOKEN;
-const API_KEY = proccess.env.API_KEY;
-const METAR_API_KEY = 'https://avwx.rest/api/metar/';
+const TOKEN = process.env.TOKEN;
+const API_KEY = process.env.API_KEY;
+const METAR_API = 'https://avwx.rest/api/metar/';
 
-// create a new discord client
+// Create a new Discord client
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Log resources usage periodically
+// Log resource usage periodically
 setInterval(() => {
     const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
-    const cpuUsage = os.loadavg()[0];
-    console.log(`Memory Usage: ${memoryUsage.toFixed(2)} MB, CPU Load Average: ${cpuUsage.toFixed(2)}`);}, 10000); // Log every 10 seconds
+    const cpuUsage = os.loadavg()[0]; // 1-minute load average
+    console.log(`Memory Usage: ${memoryUsage.toFixed(2)} MB, CPU Load Average: ${cpuUsage.toFixed(2)}`);
+}, 10000); // Log every 10 seconds
 
-// Command Registeration
+// Command registration
 const commands = [
     new SlashCommandBuilder()
         .setName('metar')
