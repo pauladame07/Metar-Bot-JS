@@ -43,3 +43,39 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
         console.error('Error registering commands:', error);
     }
 })();
+
+// Command handling
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isCommand()) return;
+
+    const { commandName, options } = interaction;
+
+    if (commandName === 'metar') {
+        const icaoCode = options.getString('icao_code');
+        await interaction.deferReply(); // Acknowledge the command
+
+        try {
+            const response = await axios.get(`${METAR_API}${icaoCode}`, {
+                headers: { Authorization: `Bearer ${API_KEY}` }
+            });
+
+            const data = response.data;
+            const metarInfo = data.raw || 'No METAR data found.';
+
+            await interaction.followUp(`METAR for **${icaoCode}**:\n\`\`\`${metarInfo}\`\`\``);
+            console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
+        } catch (error) {
+            console.error(`Error fetching METAR for ${icaoCode}:`, error);
+            await interaction.followUp('Error fetching METAR data. Please try again later.');
+            console.log(`Command: metar, Argument: ${icaoCode}, Status: Failed`);
+        }
+    }
+});
+
+// Log bot ready event
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+});
+
+// Login to Discord
+client.login(TOKEN);
