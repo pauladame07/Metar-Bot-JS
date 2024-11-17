@@ -1,82 +1,103 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
-const axios = require('axios');
-const dotenv = require('dotenv');
-const os = require('os');
+const fetch = require('node-fetch');
 
-// Load environment variables
-dotenv.config();
-
-const TOKEN = process.env.TOKEN;
-const API_KEY = process.env.API_KEY;
+// Example nearby airports API for fallback
+const NEARBY_AIRPORTS_API = 'https://avwx.rest/api/station/nearby/';
 const METAR_API = 'https://avwx.rest/api/metar/';
+const API_KEY = process.env.API_KEY;
 
-// Create a new Discord client
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-// Log resource usage periodically
-setInterval(() => {
-    const memoryUsage = process.memoryUsage().rss / 1024 / 1024; // RSS: Resident Set Size (actual memory usage)
-    const cpuUsage = os.loadavg()[0]; // 1-minute load average
-    console.log(`Memory Usage: ${memoryUsage.toFixed(2)} MB, CPU Load Average: ${cpuUsage.toFixed(2)}`);}, 10000); // Log every 10 seconds
-
-// Command registration
-const commands = [
-    new SlashCommandBuilder()
-        .setName('metar')
-        .setDescription('Get METAR information for an airport.')
-        .addStringOption(option =>
-            option.setName('icao_code')
-                .setDescription('The ICAO code of the airport (e.g., RPLL)')
-                .setRequired(true)),
-];
-
-const rest = new REST({ version: '10' }).setToken(TOKEN);
-
-(async () => {
+// Function to fetch METAR
+async function fetchMetar(icaoCode) {
     try {
-        console.log('Registering slash commands...');
-        await rest.put(
-            Routes.applicationCommands(process.env.CLIENT_ID),
-            { body: commands }
-        );
-        console.log('Slash commands registered.');
-    } catch (error) {
-        console.error('Error registering commands:', error);
-    }
-})();
+        const response = await fetch(`${METAR_API}${icaoCode}`, {
+            headers: { Authorization: `Bearer ${API_KEY}` }
+        });
 
-// Command handling
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
-
-    const { commandName, options } = interaction;
-
-    if (commandName === 'metar') {
-        const icaoCode = options.getString('icao_code');
-        await interaction.deferReply(); // Acknowledge the command
-
-        try {
-            const response = await axios.get(`${METAR_API}${icaoCode}`, {
-                headers: { Authorization: `Bearer ${API_KEY}` }
-            });
-
-            const data = response.data;
-            const metarInfo = data.raw || 'No METAR data found.';
-
-            await interaction.followUp(`METAR for **${icaoCode}**:\n\`\`\`${metarInfo}\`\`\``);
-            console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
-        } catch (error) {
-            console.error(`Error fetching METAR for ${icaoCode}:`, error);
-            await interaction.followUp('Error fetching METAR data. Please try again later.');
-            console.log(`Command: metar, Argument: ${icaoCode}, Status: Failed`);
+        if (response.status === 404) {
+            return null; // No METAR available
         }
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+
+        return data.raw || null; // Return raw METAR string
+    } catch (error) {
+        console.error(`Error fetching METAR for ${icaoCode}: ${error.message}`);
+        throw error;
+    }
+}
+
+// Function to fetch closest airport's METAR
+async function fetchClosestMetar(lat, lon) {
+    try {
+        const response = await fetch(`${NEARBY_AIRPORTS_API}${lat},${lon}`, {
+            headers: { Authorization: `Bearer ${API_KEY}` }
+        });
+
+        const data = await response.json();
+        if (!data || data.length === 0) return null; // No nearby airports found
+
+        // Iterate through nearby airports to find one with METAR data
+        for (const airport of data) {
+            const metar = await fetchMetar(airport.icao);
+            if (metar) return { icao: airport.icao, metar };
+        }
+
+        return null; // No METAR found in nearby airports
+    } catch (error) {
+        console.error(`Error fetching nearby airports: ${error.message}`);
+        throw error;
+    }
+}
+
+// /metar command handler
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isCommand() || interaction.commandName !== 'metar') return;
+
+    const icaoCode = interaction.options.getString('icao_code');
+    await interaction.deferReply(); // Acknowledge the command
+
+    try {
+        let metar = await fetchMetar(icaoCode);
+
+        if (!metar) {
+            // Fallback: Find the closest METAR
+            const fallbackResponse = await fetch(
+                `https://avwx.rest/api/station/${icaoCode}`,
+                {
+                    headers: { Authorization: `Bearer ${API_KEY}` }
+                }
+            );
+
+            const stationData = await fallbackResponse.json();
+            if (!stationData.latitude || !stationData.longitude) {
+                await interaction.editReply(
+                    `No METAR available for **${icaoCode}**, and location data is unavailable for finding the closest airport.`
+                );
+                return;
+            }
+
+            const closestMetar = await fetchClosestMetar(
+                stationData.latitude,
+                stationData.longitude
+            );
+
+            if (closestMetar) {
+                await interaction.editReply(
+                    `No METAR available for **${icaoCode}**. Closest METAR is at **${closestMetar.icao}**:\n\`\`\`${closestMetar.metar}\`\`\``
+                );
+            } else {
+                await interaction.editReply(
+                    `No METAR data available for **${icaoCode}** or nearby airports.`
+                );
+            }
+        } else {
+            await interaction.editReply(
+                `METAR for **${icaoCode}**:\n\`\`\`${metar}\`\`\``
+            );
+        }
+    } catch (error) {
+        await interaction.editReply(
+            `An error occurred while fetching METAR data: ${error.message}`
+        );
     }
 });
-
-// Log bot ready event
-client.once('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);
-});
-
-// Login to Discord
-client.login(TOKEN);
