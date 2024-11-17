@@ -15,7 +15,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 // Log resource usage periodically
 setInterval(() => {
-    const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+    const memoryUsage = process.memoryUsage().rss / 1024 / 1024; // RSS: Resident Set Size (actual memory usage)
     const cpuUsage = os.loadavg()[0]; // 1-minute load average
     console.log(`Memory Usage: ${memoryUsage.toFixed(2)} MB, CPU Load Average: ${cpuUsage.toFixed(2)}`);
 }, 10000); // Log every 10 seconds
