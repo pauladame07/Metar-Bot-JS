@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits } from 'discord.js';
+import { Client, GatewayIntentBits, IntentsBitField } from 'discord.js';
 import dotenv from 'dotenv'; // To load environment variables like bot token
 import fetch from 'node-fetch';
 
@@ -10,13 +10,12 @@ const NEARBY_AIRPORTS_API = 'https://avwx.rest/api/station/nearby/';
 const METAR_API = 'https://avwx.rest/api/metar/';
 const API_KEY = process.env.API_KEY;  // Use the API_KEY from the .env file
 
-// Initialize the Discord client
+// Initialize the Discord client with proper intents
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.Interactions,
+    GatewayIntentBits.Guilds,          // Required to listen for guild commands
+    GatewayIntentBits.GuildMessages,  // Required to receive messages
+    GatewayIntentBits.MessageContent, // Required for message content access
   ],
 });
 
@@ -41,7 +40,7 @@ async function fetchMetar(icaoCode) {
   }
 }
 
-// Function to fetch closest airport's METAR
+// Function to fetch the closest airport's METAR
 async function fetchClosestMetar(lat, lon) {
   try {
     const response = await fetch(`${NEARBY_AIRPORTS_API}${lat},${lon}`, {
