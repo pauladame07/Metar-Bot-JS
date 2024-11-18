@@ -57,15 +57,43 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply(); // Acknowledge the command
 
         try {
+            // Fetch METAR for the given ICAO code
             const response = await axios.get(`${METAR_API}${icaoCode}`, {
                 headers: { Authorization: `Bearer ${API_KEY}` }
             });
 
             const data = response.data;
-            const metarInfo = data.raw || 'No METAR data found.';
+            if (data && data.raw) {
+                // METAR data is available
+                await interaction.followUp(`METAR for **${icaoCode}**:\n\`\`\`${data.raw}\`\`\``);
+                console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
+            } else {
+                // ICAO code valid but no METAR data found
+                console.log(`No METAR data for ${icaoCode}. Fetching nearest available METAR...`);
 
-            await interaction.followUp(`METAR for **${icaoCode}**:\n\`\`\`${metarInfo}\`\`\``);
-            console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
+                // Fetch station details to find nearby stations
+                const stationResponse = await axios.get(`https://avwx.rest/api/station/${icaoCode}`, {
+                    headers: { Authorization: `Bearer ${API_KEY}` }
+                });
+
+                const stationData = stationResponse.data;
+                if (stationData && stationData.nearest) {
+                    // Fetch METAR for the nearest station
+                    const nearestIcao = stationData.nearest[0].icao;
+                    const nearestMetarResponse = await axios.get(`${METAR_API}${nearestIcao}`, {
+                        headers: { Authorization: `Bearer ${API_KEY}` }
+                    });
+
+                    const nearestMetarData = nearestMetarResponse.data;
+                    const nearestMetarInfo = nearestMetarData.raw || 'No METAR data found for nearest station.';
+
+                    await interaction.followUp(`No METAR data found for **${icaoCode}**. Here's the METAR for the nearest station (**${nearestIcao}**):\n\`\`\`${nearestMetarInfo}\`\`\``);
+                    console.log(`Command: metar, Argument: ${icaoCode}, Nearest Station: ${nearestIcao}, Status: Success`);
+                } else {
+                    await interaction.followUp('No METAR data found, and no nearby stations could be located.');
+                    console.log(`Command: metar, Argument: ${icaoCode}, Status: No Data`);
+                }
+            }
         } catch (error) {
             console.error(`Error fetching METAR for ${icaoCode}:`, error);
             await interaction.followUp('Error fetching METAR data. Please try again later.');
