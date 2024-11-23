@@ -61,9 +61,38 @@ client.on('interactionCreate', async interaction => {
             });
 
             const data = response.data;
-            const metarInfo = data.raw || 'No METAR data found.';
 
-            await interaction.followUp(`METAR for **${icaoCode}**:\n\`\`\`${metarInfo}\`\`\``);
+            if (!data || !data.raw) {
+                await interaction.followUp('No METAR data found for the specified ICAO code.');
+                return;
+            }
+
+            // Parsing METAR data for a readable format
+            const readableReport = `
+**Readable Report**
+**Station:** ${data.station}
+**Observed at:** ${data.time?.repr || 'Unknown'}
+**Wind:** ${data.wind_direction?.value || 'Variable'}° at ${data.wind_speed?.value || '0'}kt
+**Visibility:** ${data.visibility?.repr || 'N/A'}
+**Temperature:** ${data.temperature?.value}°C (${((data.temperature?.value * 9) / 5 + 32).toFixed(0)}°F)
+**Dew Point:** ${data.dewpoint?.value}°C (${((data.dewpoint?.value * 9) / 5 + 32).toFixed(0)}°F)
+**Altimeter:** ${data.altimeter?.value || 'N/A'} hPa
+**Clouds:** ${
+                data.clouds.length
+                    ? data.clouds.map(c => `${c.repr || ''}`).join(', ')
+                    : 'Clear skies'
+            }
+**Flight Rules:** ${data.flight_rules || 'N/A'}
+            `;
+
+            // Combine raw data and readable report
+            const responseMessage = `
+**Raw METAR:** \`${data.raw}\`
+
+${readableReport}
+            `;
+
+            await interaction.followUp(responseMessage);
             console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
         } catch (error) {
             console.error(`Error fetching METAR for ${icaoCode}:`, error);
@@ -72,6 +101,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 });
+
 
 // Log bot ready event
 client.once('ready', () => {
