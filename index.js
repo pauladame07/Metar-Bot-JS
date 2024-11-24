@@ -82,8 +82,9 @@ client.on('interactionCreate', async interaction => {
                     ? data.clouds.map(c => `${c.repr || ''}`).join(', ')
                     : 'Clear skies'
             }
-**Flight Rules:** ${data.flight_rules || 'N/A'}
-            `;
+**Flight Rules:** ${data.flight_rules || 'N/A'} 
+**Remarks:** ${data.remarks || 'No remarks'}
+    `;
 
             // Combine raw data and readable report
             const responseMessage = `
