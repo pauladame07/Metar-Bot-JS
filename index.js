@@ -9,6 +9,8 @@ dotenv.config();
 const TOKEN = process.env.TOKEN;
 const API_KEY = process.env.API_KEY;
 const METAR_API = 'https://avwx.rest/api/metar/';
+const VATSIM_API = 'https://data.vatsim.net/v3/vatsim-data.json';
+const IVAO_API = 'https://api.ivao.aero/v2/data/whazzup';
 
 // Create a new Discord client
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -45,59 +47,102 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
     }
 })();
 
-// Command handling
-client.on('interactionCreate', async interaction => {
+// Function to fetch ATIS
+async function fetchATIS(icaoCode) {
+    try {
+        // Step 1: Check VATSIM for ATIS
+        const vatsimResponse = await axios.get(VATSIM_API);
+        const vatsimData = vatsimResponse.data;
+
+        const vatsimATIS = vatsimData.controllers.find(
+            (controller) => controller.callsign.startsWith(icaoCode) && controller.facility_type === 4 // Facility Type 4: ATIS
+        );
+
+        if (vatsimATIS) {
+            return `VATSIM ATIS:\n${vatsimATIS.text}`;
+        }
+
+        // Step 2: Check IVAO for ATIS
+        const ivaoResponse = await axios.get(IVAO_API);
+        const ivaoData = ivaoResponse.data;
+
+        const ivaoATIS = ivaoData.clients.controllers.find(
+            (controller) => controller.callsign.startsWith(icaoCode) && controller.rating === 'ATIS'
+        );
+
+        if (ivaoATIS) {
+            return `IVAO ATIS:\n${ivaoATIS.atis}`;
+        }
+
+        // Step 3: Fallback
+        return 'ATIS Unavailable';
+    } catch (error) {
+        console.error('Error fetching ATIS:', error);
+        return 'ATIS Unavailable';
+    }
+}
+
+// Main Command Handling
+client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) return;
 
     const { commandName, options } = interaction;
 
     if (commandName === 'metar') {
-        const icaoCode = options.getString('icao_code');
+        const icaoCode = options.getString('icao_code').toUpperCase();
         await interaction.deferReply(); // Acknowledge the command
 
         try {
-            const response = await axios.get(`${METAR_API}${icaoCode}`, {
-                headers: { Authorization: `Bearer ${API_KEY}` }
+            const metarResponse = await axios.get(`${METAR_API}${icaoCode}`, {
+                headers: { Authorization: `Bearer ${API_KEY}` },
             });
 
-            const data = response.data;
+            const data = metarResponse.data;
+
+            console.log('METAR API Response:', JSON.stringify(data, null, 2)); // Debug log
 
             if (!data || !data.raw) {
                 await interaction.followUp('No METAR data found for the specified ICAO code.');
                 return;
             }
 
-            // Parsing METAR data for a readable format
+            // Fetch ATIS data
+            const atis = await fetchATIS(icaoCode);
+
+            // Construct the readable report
             const readableReport = `
+**Raw METAR:** \`${data.raw}\`
+
 **Readable Report**
-**Station:** ${data.station}
+**Station:** ${data.station} (${data.info?.name || 'Unknown'}, ${data.info?.city || ''})
 **Observed at:** ${data.time?.repr || 'Unknown'}
 **Wind:** ${data.wind_direction?.value || 'Variable'}° at ${data.wind_speed?.value || '0'}kt
 **Visibility:** ${data.visibility?.repr || 'N/A'}
-**Temperature:** ${data.temperature?.value}°C (${((data.temperature?.value * 9) / 5 + 32).toFixed(0)}°F)
-**Dew Point:** ${data.dewpoint?.value}°C (${((data.dewpoint?.value * 9) / 5 + 32).toFixed(0)}°F)
+**Temperature:** ${data.temperature?.value ?? 'N/A'}°C (${data.temperature ? ((data.temperature.value * 9) / 5 + 32).toFixed(0) : 'N/A'}°F)
+**Dew Point:** ${data.dewpoint?.value ?? 'N/A'}°C (${data.dewpoint ? ((data.dewpoint.value * 9) / 5 + 32).toFixed(0) : 'N/A'}°F)
 **Altimeter:** ${data.altimeter?.value || 'N/A'} hPa
 **Clouds:** ${
-                data.clouds.length
-                    ? data.clouds.map(c => `${c.repr || ''}`).join(', ')
+                data.clouds?.length
+                    ? data.clouds
+                          .map(
+                              (c) =>
+                                  `${c.repr || 'Unknown'} at ${
+                                      c.base_ft_agl ? `${c.base_ft_agl}ft` : 'unknown altitude'
+                                  }`
+                          )
+                          .join(', ')
                     : 'Clear skies'
             }
 **Flight Rules:** ${data.flight_rules || 'N/A'}
+
+**ATIS:** ${atis}
             `;
 
-            // Combine raw data and readable report
-            const responseMessage = `
-**Raw METAR:** \`${data.raw}\`
-
-${readableReport}
-            `;
-
-            await interaction.followUp(responseMessage);
+            await interaction.followUp(readableReport);
             console.log(`Command: metar, Argument: ${icaoCode}, Status: Success`);
         } catch (error) {
             console.error(`Error fetching METAR for ${icaoCode}:`, error);
             await interaction.followUp('Error fetching METAR data. Please try again later.');
-            console.log(`Command: metar, Argument: ${icaoCode}, Status: Failed`);
         }
     }
 });
